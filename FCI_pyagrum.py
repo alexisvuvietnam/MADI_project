@@ -27,7 +27,7 @@ class FCI:
         for i in range(self.n):
             for j in range(self.n):
                 if i != j:
-                    self.separators[(i, j)] = list()
+                    self.separators[(i, j)] = set()
     
     def exist_edge(self, i, j):
         if i == j: return False
@@ -38,6 +38,12 @@ class FCI:
             self.matrix[i, j] = " "
             self.matrix[j, i] = " "
     
+    def list_adjacents(self, i):
+        return set([j for j in range(self.n) if self.exist_edge(i, j)])
+    
+    def num_adjacents(self, i):
+        return len(self.list_adjacents(i))
+    
     def list_edges(self):
         L = []
         for i in range(self.n):
@@ -46,49 +52,34 @@ class FCI:
                     L.append((i, j))
         return L
     
-    def list_adjacents(self, i):
-        return set([j for j in range(self.n) if self.exist_edge(i, j)])
-    
-    def num_adjacents(self, i):
-        return len(self.list_adjacents(i))
+    def key(self, edge):
+        x, y = edge
+        return self.num_adjacents(x) + self.num_adjacents(x)
 
     def isIndependent(self, X, Y, Z):
-        _, p = self.learner.chi2(X, Y, Z)
+        _, p = self.learner.G2(X, Y, Z)
         return p > self.alpha
 
-    def PC_skeleton(self, stable=False):
+    def skeleton(self):
         d = 0
-        while True:
-            if all(self.num_adjacents(i) - 1 < d for i in range(self.n)):
-                break
-            removedEdges = set()
-            for i in range(self.n):
-                adjacents = self.list_adjacents(i)
-                if len(adjacents) - 1 < d:
-                    continue
-                neighbor_list = list(adjacents)
-                for j in neighbor_list:
-                    if j <= i:
-                        continue
-                    if not self.exist_edge(i, j):
-                        continue
-                    if stable and ((i, j) in removedEdges or (j, i) in removedEdges):
-                        continue
-                    candidates = [node for node in adjacents if node != j]
-                    if len(candidates) < d:
-                        continue
-                    for Z in itertools.combinations(candidates, d):
-                        if self.isIndependent(self.variables[i], self.variables[j], [self.variables[k] for k in Z]):
-                            self.separators[(i, j)] = list(Z)
-                            self.separators[(j, i)] = list(Z)
-                            if stable:
-                                removedEdges.add((i, j))
-                            else:
-                                self.remove_edge(i, j)
-                            break
-            if stable:
-                for (i, j) in removedEdges:
-                    self.remove_edge(i, j)
+        flag = True
+        while flag:
+            edges = self.list_edges()
+            flag = False
+            for (i, j) in edges:
+                if self.exist_edge(i, j):
+                    adj_i = self.list_adjacents(i)
+                    adj_j = self.list_adjacents(j)
+                    check_list = [(j, adj_i), (i, adj_j)]
+                    for (x, adj) in check_list:
+                        if len(adj) > d:
+                            flag = True
+                            for Z in itertools.combinations([k for k in adj if k != x], d):
+                                if self.isIndependent(self.variables[i], self.variables[j], [self.variables[k] for k in Z]):
+                                    self.separators[(i, j)] = self.separators[(i, j)].union(set(Z))
+                                    self.separators[(j, i)] = self.separators[(j, i)].union(set(Z))
+                                    self.remove_edge(i, j)
+                                    break
             d += 1
 
     def unshielded_triple_in_order_ijk(self, i, j, k):
@@ -183,37 +174,23 @@ class FCI:
     #             if i != j:
     #                 possible_d_sep[(i, j)] = self.get_possible_d_sep(i, j)
     #     return possible_d_sep
-    
-    import itertools
 
-    def refine_skeleton_with_pds(self, stable=False):
-        edges_to_remove = set()
-        current_edges = list(self.list_edges()) 
-        for (i, j) in current_edges:
-            if (i, j) in edges_to_remove or (j, i) in edges_to_remove:
-                continue
-            pds_set = self.get_possible_d_sep(i, j)
-            if j in pds_set: pds_set.remove(j)
-            if i in pds_set: pds_set.remove(i)
-            pds_list = list(pds_set)
-            pds_size = len(pds_list)
-            edge_removed = False
-            for d in range(pds_size + 1):
-                if edge_removed: break
-                for Z in itertools.combinations(pds_list, d):
-                    cond_set = list(Z)
-                    if self.isIndependent(self.variables[i], self.variables[j], [self.variables[k] for k in cond_set]):
-                        self.separators[(i, j)] = cond_set
-                        self.separators[(j, i)] = cond_set
-                        if stable:
-                            edges_to_remove.add((i, j))
-                        else:
-                            self.remove_edge(i, j)
-                        edge_removed = True
-                        break
-        if stable:
-            for (i, j) in edges_to_remove:
-                self.remove_edge(i, j)
+    def refine_skeleton_with_pds(self):
+        for i in range(self.n):
+            adjs = self.list_adjacents(i)
+            for j in adjs:
+                pds = self.get_possible_d_sep(i, j)
+                flag = False
+                for d in range(self.n - 1):
+                    if len(pds) > d:
+                        flag = True
+                        for Z in itertools.combinations(pds - {j}, d):
+                            if self.isIndependent(self.variables[i], self.variables[j], [self.variables[k] for k in Z]):
+                                self.separators[(i, j)] = self.separators[(i, j)].union(Z)
+                                self.separators[(j, i)] = self.separators[(j, i)].union(Z)
+                                self.remove_edge(i, j)
+                                break
+                    if not flag: break
         self.matrix = np.where(self.matrix == " ", " ", "o")
 
     def rule1(self, v1, v2, v3):
@@ -490,7 +467,7 @@ class FCI:
                 if self.exist_edge(i, j):
                     if self.matrix[i, j] == self.matrix[j, i]:
                         edges.add((i, j))
-                    elif FCI.arrow_attributes.index(self.matrix[i, j]) > FCI.arrow_attributes.index(self.matrix[j, i]):
+                    elif self.arrow_attributes.index(self.matrix[i, j]) > self.arrow_attributes.index(self.matrix[j, i]):
                         arcs.add((i, j))
                     else:
                         arcs.add((j, i))
@@ -520,9 +497,9 @@ class FCI:
 
 # FCI FAMILY
 
-def FCI_PC_pyagrum(df, alpha=0.05, stable=False):
+def FCI_PC_pyagrum(df, alpha=0.05):
     fci = FCI(df, alpha=alpha)
-    fci.PC_skeleton(stable=stable)
+    fci.skeleton()
     triplets = list(itertools.permutations(range(fci.n), r=3))
     for t in triplets:
         fci.rule0(t[0], t[1], t[2])
@@ -536,9 +513,9 @@ def FCI_PC_pyagrum(df, alpha=0.05, stable=False):
         graph = fci.matrix
     return fci
 
-def FCI_Zhang_pyagrum(df, alpha=0.05, stable=False):
+def FCI_Zhang_pyagrum(df, alpha=0.05):
     fci = FCI(df, alpha=alpha)
-    fci.PC_skeleton(stable = stable)
+    fci.skeleton()
     triplets = list(itertools.permutations(range(fci.n), r=3))
     for t in triplets:
         fci.rule0(t[0], t[1], t[2])
@@ -560,69 +537,107 @@ def FCI_Zhang_pyagrum(df, alpha=0.05, stable=False):
         graph = fci.matrix
     return fci
 
-def FCI_ETHZ_pyagrum(df, alpha=0.05, stable=False):
+def FCI_ETHZ_pyagrum(df, alpha=0.05):
     fci = FCI(df, alpha=alpha)
-    fci.PC_skeleton(stable=stable)
-    triplets = list(itertools.permutations(range(fci.n), r=3))
-    for t in triplets:
-        fci.rule0(t[0], t[1], t[2])
-    fci.refine_skeleton_with_pds(stable=stable)
-    for t in triplets:
-        fci.rule0(t[0], t[1], t[2])
-    graph = fci.matrix
-    old_graph = np.full((fci.n, fci.n), "")
-    while not np.array_equal(old_graph, graph):
-        old_graph = graph.copy()
-        for t in triplets:
-            fci.rule1(t[0], t[1], t[2])
-        for t in triplets:
-            fci.rule2(t[0], t[1], t[2])
-        for t in triplets:
-            for new_elem in range(fci.n):
-                if new_elem not in t:
-                    fci.rule3(t[0], t[1], t[2], new_elem)
-        paths = fci.list_discriminating_paths()
-        for path in paths:
-            fci.rule4(path)
-        graph = fci.matrix
-    couples = list(itertools.permutations(range(fci.n), r=2))
-    quadruplets = list(itertools.permutations(range(fci.n), r=4))
-    graph = fci.matrix
-    old_graph = np.full((fci.n, fci.n), "")
-    while not np.array_equal(old_graph, graph):
-        for (x, y) in couples:
-            fci.rule5(x, y)
-        for (x, y, z) in triplets:
-            fci.rule6(x, y, z)
-        for (x, y, z) in triplets:
-            fci.rule7(x, y, z)
-        old_graph = graph.copy()
-        graph = fci.matrix
-    old_graph = np.full((fci.n, fci.n), "")
-    while not np.array_equal(old_graph, graph):
-        for (x, y, z) in triplets:
-            fci.rule8(x, y, z)
-        for (x, y) in couples:
-            fci.rule9(x, y)
-        for (x, y, z, t) in quadruplets:
-            fci.rule10(x, y, z, t)
-        old_graph = graph.copy()
-        graph = fci.matrix
-    return fci
-
-def raw_skeleton(df, alpha = 0.05, stable=False):
-    fci = FCI(df, alpha=alpha)
-    fci.PC_skeleton(stable = stable)
+    fci.skeleton()
     triplets = list(itertools.permutations(range(fci.n), r=3))
     for t in triplets:
         fci.rule0(t[0], t[1], t[2])
     fci.refine_skeleton_with_pds()
     for t in triplets:
         fci.rule0(t[0], t[1], t[2])
+    graph = fci.matrix
+    old_graph = np.full((fci.n, fci.n), "")
+    while not np.array_equal(old_graph, graph):
+        old_graph = graph.copy()
+        for t in triplets:
+            fci.rule1(t[0], t[1], t[2])
+        for t in triplets:
+            fci.rule2(t[0], t[1], t[2])
+        for t in triplets:
+            for new_elem in range(fci.n):
+                if new_elem not in t:
+                    fci.rule3(t[0], t[1], t[2], new_elem)
+        paths = fci.list_discriminating_paths()
+        for path in paths:
+            fci.rule4(path)
+        graph = fci.matrix
+    couples = list(itertools.permutations(range(fci.n), r=2))
+    quadruplets = list(itertools.permutations(range(fci.n), r=4))
+    graph = fci.matrix
+    old_graph = np.full((fci.n, fci.n), "")
+    while not np.array_equal(old_graph, graph):
+        for (x, y) in couples:
+            fci.rule5(x, y)
+        for (x, y, z) in triplets:
+            fci.rule6(x, y, z)
+        for (x, y, z) in triplets:
+            fci.rule7(x, y, z)
+        old_graph = graph.copy()
+        graph = fci.matrix
+    old_graph = np.full((fci.n, fci.n), "")
+    while not np.array_equal(old_graph, graph):
+        for (x, y, z) in triplets:
+            fci.rule8(x, y, z)
+        for (x, y) in couples:
+            fci.rule9(x, y)
+        for (x, y, z, t) in quadruplets:
+            fci.rule10(x, y, z, t)
+        old_graph = graph.copy()
+        graph = fci.matrix
     return fci
 
-def AFCI_Zhang_pyagrum(df, alpha = 0.05, stable=False):
-    fci = FCI_Zhang_pyagrum(df, alpha, stable=stable)
+def FCI_final_pyagrum(df, alpha=0.05):
+    fci = FCI(df, alpha=alpha)
+    fci.skeleton()
+    triplets = list(itertools.permutations(range(fci.n), r=3))
+    for t in triplets:
+        fci.rule0(t[0], t[1], t[2])
+    graph = fci.matrix
+    old_graph = np.full((fci.n, fci.n), "")
+    while not np.array_equal(old_graph, graph):
+        old_graph = graph.copy()
+        for t in triplets:
+            fci.rule1(t[0], t[1], t[2])
+        for t in triplets:
+            fci.rule2(t[0], t[1], t[2])
+        for t in triplets:
+            for new_elem in range(fci.n):
+                if new_elem not in t:
+                    fci.rule3(t[0], t[1], t[2], new_elem)
+        paths = fci.list_discriminating_paths()
+        for path in paths:
+            fci.rule4(path)
+        graph = fci.matrix
+    couples = list(itertools.permutations(range(fci.n), r=2))
+    quadruplets = list(itertools.permutations(range(fci.n), r=4))
+    graph = fci.matrix
+    old_graph = np.full((fci.n, fci.n), "")
+    while not np.array_equal(old_graph, graph):
+        for (x, y) in couples:
+            fci.rule5(x, y)
+        for (x, y, z) in triplets:
+            fci.rule6(x, y, z)
+        M = [(x, y, z) for (x, y, z) in triplets if fci.unshielded_triple_in_order_ijk(x, y, z) and x < z]
+        for (x, y, z) in M:
+            fci.rule7(x, y, z)
+        old_graph = graph.copy()
+        graph = fci.matrix
+    old_graph = np.full((fci.n, fci.n), "")
+    while not np.array_equal(old_graph, graph):
+        for (x, y, z) in triplets:
+            fci.rule8(x, y, z)
+        for (x, y) in couples:
+            fci.rule9(x, y)
+        for (x, y, z, t) in quadruplets:
+            fci.rule10(x, y, z, t)
+        old_graph = graph.copy()
+        graph = fci.matrix
+    return fci
+
+
+def AFCI_Zhang_pyagrum(df, alpha = 0.05):
+    fci = FCI_Zhang_pyagrum(df, alpha)
     couples = list(itertools.permutations(range(fci.n), r=2))
     triplets = list(itertools.permutations(range(fci.n), r=3))
     quadruplets = list(itertools.permutations(range(fci.n), r=4))
@@ -649,8 +664,8 @@ def AFCI_Zhang_pyagrum(df, alpha = 0.05, stable=False):
         graph = fci.matrix
     return fci
 
-def RFCI(df, alpha = 0.05, stable=False):
-    fci = FCI(df, alpha=alpha, stable=stable)
+def RFCI(df, alpha = 0.05):
+    fci = FCI(df, alpha=alpha)
     fci.PC_skeleton()
     fci.really_fast_v_orientation()
     couples = list(itertools.permutations(range(fci.n), r=2))

@@ -57,12 +57,9 @@ def PC_skeleton(df, alpha):
                             if res["p-val"].values[0] > alpha:
                                 graph[i, j] = " "
                                 graph[j, i] = " "
-                                separator_set[(i, j)] = Z
-                                separator_set[(j, i)] = Z
-                                flag = True
+                                separator_set[(i, j)] = separator_set[(i, j)].union(Z)
+                                separator_set[(j, i)] = separator_set[(j, i)].union(Z)
                                 break
-                    if flag: break
-            if flag: break
         d += 1
         #if all(len(list_neighbors_from_init(graph, node)) <= d for node in range(n)): break
     return graph, separator_set
@@ -200,11 +197,10 @@ def refine_skeleton_with_pds(df, graph, separator_set, alpha = 0.05):
                     if res["p-val"].values[0] > alpha:
                         graph[i, j] = " "
                         graph[j, i] = " "
-                        separator_set[(i, j)] = Z
-                        separator_set[(j, i)] = Z
+                        separator_set[(i, j)] = separator_set[(i, j)].union(Z)
+                        separator_set[(j, i)] = separator_set[(j, i)].union(Z)
                         flag = True
                         break
-                if flag: break
     graph = np.where(graph == " ", " ", "o")
 
             
