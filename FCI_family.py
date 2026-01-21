@@ -41,6 +41,7 @@ def PC_skeleton(df, alpha):
     cont = True
     while cont:
         cont = False
+        flag = False
         edges = list_edges(graph)
         for (i, j) in edges:
             if exist_edge(graph, i, j):
@@ -56,9 +57,12 @@ def PC_skeleton(df, alpha):
                             if res["p-val"].values[0] > alpha:
                                 graph[i, j] = " "
                                 graph[j, i] = " "
-                                separator_set[(i, j)] = separator_set[(i, j)].union(Z)
-                                separator_set[(j, i)] = separator_set[(j, i)].union(Z)
+                                separator_set[(i, j)] = Z
+                                separator_set[(j, i)] = Z
+                                flag = True
                                 break
+                    if flag: break
+            if flag: break
         d += 1
         #if all(len(list_neighbors_from_init(graph, node)) <= d for node in range(n)): break
     return graph, separator_set
@@ -168,32 +172,41 @@ def get_possible_d_sep(graph, from_node, to_node):
                         pds.add(next_node)
     return pds
 
-def make_possible_d_sep(graph):
-    _, n = graph.shape
-    possible_d_sep = dict()
-    for i in range(n):
-        for j in range(n):
-            if i != j:
-                possible_d_sep[(i, j)] = get_possible_d_sep(graph, i, j)
-    return possible_d_sep
+# def make_possible_d_sep(graph):
+#     _, n = graph.shape
+#     possible_d_sep = dict()
+#     for i in range(n):
+#         for j in range(n):
+#             if i != j:
+#                 possible_d_sep[(i, j)] = get_possible_d_sep(graph, i, j)
+#     return possible_d_sep
 
-def refine_skeleton_with_pds(df, graph, separator_set, possible_d_sep, alpha = 0.05):
+def refine_skeleton_with_pds(df, graph, separator_set, alpha = 0.05):
     variables = list(df.columns)
     edges = list_edges(graph)
     for (i, j) in edges:
         if exist_edge(graph, i, j):
-            pds = possible_d_sep[(i, j)]
+            pds = get_possible_d_sep(graph, i, j)
+            if i in pds: pds.remove(i)
+            if j in pds: pds.remove(j)
+            pds_list = list(pds)
             length = len(pds)
-            for d in range(length - length // 2):
+            flag = False
+            for d in range(length + 1):
+                if flag: break
                 Z_list = [z for z in itertools.combinations([k for k in pds], d)]
                 for Z in Z_list:
                     res = pg.partial_corr(data = df, x = variables[i], y = variables[j], covar = [variables[k] for k in Z])
                     if res["p-val"].values[0] > alpha:
                         graph[i, j] = " "
                         graph[j, i] = " "
-                        separator_set[(i, j)] = separator_set[(i, j)].union(Z)
-                        separator_set[(j, i)] = separator_set[(j, i)].union(Z)
+                        separator_set[(i, j)] = Z
+                        separator_set[(j, i)] = Z
+                        flag = True
                         break
+                if flag: break
+    graph = np.where(graph == " ", " ", "o")
+
             
 def rule1(graph, v1, v2, v3):
     if unshielded_triple_in_order_123(graph, v1, v2, v3):
@@ -251,13 +264,13 @@ def is_pd_edge(graph, i, j):
 
 def is_potentially_directed_path(graph, path):
     for i in range(len(path) - 1):
-        if graph[path[i], path[i + 1]] == "-" or graph[path[i + 1], path[i]] == ">":
+        if not is_pd_edge(graph, path[i], path[i + 1]):
             return False
     return True
                 
 def get_uncovered_circle_paths_targeted(graph, u, y, current_path, limit=10):
     current_node = current_path[-1]
-    #if len(current_path) > limit: return []
+    if len(current_path) > limit: return []
     neighbors = list_neighbors(graph, current_node)
     paths = []
     for node in neighbors:
@@ -283,7 +296,7 @@ def get_uncovered_circle_paths_targeted(graph, u, y, current_path, limit=10):
 
 def get_uncovered_pd_paths_targeted(graph, u, y, current_path, limit=10):
     current_node = current_path[-1]
-    #if len(current_path) > limit: return []
+    if len(current_path) > limit: return []
     neighbors = list_neighbors(graph, current_node)
     paths = []
     for node in neighbors:
@@ -368,10 +381,9 @@ def FCI_PC(df, alpha=0.05):
     old_graph = np.full((n, n), "")
     while not np.array_equal(old_graph, graph):
         old_graph = graph.copy()
-        possible_d_sep = make_possible_d_sep(graph)
         for t in triplets:
             rule0(graph, t[0], t[1], t[2], separator_set)
-        refine_skeleton_with_pds(df, graph, separator_set, possible_d_sep, alpha=alpha)
+        refine_skeleton_with_pds(df, graph, separator_set, alpha=alpha)
     return graph
     
 def FCI_Zhang(df, alpha=0.05):
@@ -403,10 +415,9 @@ def FCI_ETHZ(df, alpha=0.05):
     triplets = list(itertools.permutations(range(n), r=3))
     for t in triplets:
         rule0(graph, t[0], t[1], t[2], separator_set)
-    possible_d_sep = make_possible_d_sep(graph)
     for t in triplets:
         rule0(graph, t[0], t[1], t[2], separator_set)
-    refine_skeleton_with_pds(df, graph, separator_set, possible_d_sep, alpha=alpha)
+    refine_skeleton_with_pds(df, graph, separator_set, alpha=alpha)
     old_graph = np.full((n, n), "")
     while not np.array_equal(old_graph, graph):
         old_graph = graph.copy()
@@ -422,6 +433,27 @@ def FCI_ETHZ(df, alpha=0.05):
         #paths = list_discriminating_paths_brute_force(graph, previous)
         for path in paths:
             rule4(graph, path, separator_set)
+    couples = list(itertools.permutations(range(n), r=2))
+    triplets = list(itertools.permutations(range(n), r=3))
+    quadruplets = list(itertools.permutations(range(n), r=4))
+    old_graph = np.full((n, n), "")
+    while not np.array_equal(old_graph, graph):
+        for (x, y) in couples:
+            rule5(graph, x, y)
+        for (x, y, z) in triplets:
+            rule6(graph, x, y, z)
+        for (x, y, z) in triplets:
+            rule7(graph, x, y, z)
+        old_graph = graph.copy()
+    old_graph = np.full((n, n), "")
+    while not np.array_equal(old_graph, graph):
+        for (x, y, z) in triplets:
+            rule8(graph, x, y, z)
+        for (x, y) in couples:
+            rule9(graph, x, y)
+        for (x, y, z, t) in quadruplets:
+            rule10(graph, x, y, z, t)
+        old_graph = graph.copy()
     return graph
 
 def AFCI(df, alpha = 0.05, FCI_Func=FCI_Zhang):
@@ -448,3 +480,4 @@ def AFCI(df, alpha = 0.05, FCI_Func=FCI_Zhang):
         for (x, y, z, t) in quadruplets:
             rule10(graph, x, y, z, t)
         old_graph = graph.copy()
+    return graph
