@@ -12,14 +12,18 @@ class FCI:
     arrow_attributes = ["-", "o", ">"]
     dot_attributes = ["none", "odot", "normal"]
 
-    def __init__(self, df, alpha=0.05):
+    def __init__(self, df, alpha=0.05, bayesnet=None):
         self.data = df
         self.variables = list(df.columns)
         self.n = len(self.variables)
         self.alpha = alpha
 
         # Create BNLearner
-        self.learner = gum.BNLearner(df)
+        self.bayesnet = bayesnet
+        if self.bayesnet is not None:
+            self.learner = gum.BNLearner(df, self.bayesnet)
+        else:
+            self.learner = gum.BNLearner(df)
         
         # Implement initial graph
         self.matrix = np.full((self.n, self.n), "o")
@@ -93,6 +97,17 @@ class FCI:
     def unshielded_triple_in_order_ijk(self, i, j, k):
         return self.exist_edge(i, j) and self.exist_edge(j, k) and not self.exist_edge(i, k)
     
+    def get_unshielded_triples(self):
+        output = set()
+        for j in range(self.n):
+            neighbors = self.list_adjacents(j)
+            for i in neighbors:
+                for k in neighbors:
+                    if i != k:
+                        if self.unshielded_triple_in_order_ijk(i, j, k):
+                            output.add((i, j, k))
+        return output
+    
     def rule0(self, i, j, k):
         if self.unshielded_triple_in_order_ijk(i, j, k) and j not in self.separators[(i, k)]:
             self.matrix[i, j] = ">"
@@ -104,6 +119,17 @@ class FCI:
     def is_triangle(self, i, j, k):
         return self.exist_edge(i, j) and self.exist_edge(j, k) and self.exist_edge(i, k)
     
+    def get_triangles(self):
+        output = set()
+        for j in range(self.n):
+            neighbors = self.list_adjacents(j)
+            for i in neighbors:
+                for k in neighbors:
+                    if i != k:
+                        if self.is_triangle(i, j, k):
+                            output.add((i, j, k))
+        return output
+
     def is_parent(self, i, j):
         if self.exist_edge(i, j):
             return self.matrix[i, j] == ">" and self.matrix[j, i] == "-"
@@ -126,7 +152,7 @@ class FCI:
                 return False
         return True
     
-    def get_discriminating_paths_targeted(self, u, y, current_path, limit = 10):
+    def get_discriminating_paths_targeted(self, u, y, current_path, limit = 50):
         current_node = current_path[-1]
         if len(current_path) > limit: return []
         paths = []
@@ -177,14 +203,6 @@ class FCI:
                         if next_node != to_node:
                             pds.add(next_node)
         return pds
-    
-    # def make_possible_d_sep(self):
-    #     possible_d_sep = dict()
-    #     for i in range(self.n):
-    #         for j in range(self.n):
-    #             if i != j:
-    #                 possible_d_sep[(i, j)] = self.get_possible_d_sep(i, j)
-    #     return possible_d_sep
 
     def refine_skeleton_with_pds(self, useGum=True):
         for i in range(self.n):
@@ -482,12 +500,12 @@ class FCI:
         for i in range(self.n):
             for j in range(i + 1, self.n):
                 if self.exist_edge(i, j):
-                    if self.matrix[i, j] == self.matrix[j, i]:
-                        edges.add((i, j))
-                    elif self.arrow_attributes.index(self.matrix[i, j]) > self.arrow_attributes.index(self.matrix[j, i]):
+                    if self.matrix[i, j] == ">" and self.matrix[j, i] == "-":
                         arcs.add((i, j))
-                    else:
+                    elif self.matrix[i, j] == "-" and self.matrix[j, i] == ">":
                         arcs.add((j, i))
+                    else:
+                        edges.add((i, j))
         gum_graph = gum.PDAG()
         for i in range(self.n):
             gum_graph.addNodeWithId(i)
@@ -507,25 +525,25 @@ class FCI:
             dot.edge(str(i), str(j), arrowtail=FCI.dot_attributes[FCI.arrow_attributes.index(self.matrix[j, i])], arrowhead=FCI.dot_attributes[FCI.arrow_attributes.index(self.matrix[i, j])], dir="both")
         return dot
 
-def run_FCI(df, alpha=0.05, useGum=True):
-    fci = FCI(df, alpha)
+def run_FCI(df, alpha=0.05, useGum=True, bayesnet=None):
+    fci = FCI(df, alpha=alpha, bayesnet=bayesnet)
     fci.skeleton(useGum=useGum)
-    M = [t for t in itertools.permutations(range(fci.n), 3) if fci.unshielded_triple_in_order_ijk(t[0], t[1], t[2])]
+    M = fci.get_unshielded_triples()
     for t in M:
         fci.rule0(t[0], t[1], t[2])
     fci.refine_skeleton_with_pds(useGum=useGum)
     fci.matrix = np.where(fci.matrix == " ", " ", "o")
-    M = [t for t in itertools.permutations(range(fci.n), 3) if fci.unshielded_triple_in_order_ijk(t[0], t[1], t[2])]
+    M = fci.get_unshielded_triples()
     for t in M:
         fci.rule0(t[0], t[1], t[2])
     graph = fci.matrix
     old_graph = np.full((fci.n, fci.n), "")
     while not np.array_equal(old_graph, graph):
         old_graph = graph.copy()
-        M = [t for t in itertools.permutations(range(fci.n), 3) if fci.unshielded_triple_in_order_ijk(t[0], t[1], t[2])]
+        M = fci.get_unshielded_triples()
         for t in M:
             fci.rule1(t[0], t[1], t[2])
-        T = [t for t in itertools.permutations(range(fci.n), 3) if fci.is_triangle(t[0], t[1], t[2])]
+        T = fci.get_triangles()
         for t in T:
             fci.rule2(t[0], t[1], t[2])
         C = [t for t in itertools.permutations(range(fci.n), 4)]
@@ -544,10 +562,11 @@ def run_FCI(df, alpha=0.05, useGum=True):
         triplets = list(itertools.permutations(range(fci.n), 3))
         for t in triplets:
             fci.rule6(t[0], t[1], t[2])
-        M = [t for t in itertools.permutations(range(fci.n), 3) if fci.unshielded_triple_in_order_ijk(t[0], t[1], t[2])]
+        M = fci.get_unshielded_triples()
         for t in M:
             fci.rule7(t[0], t[1], t[2])
-        T = [t for t in itertools.permutations(range(fci.n), 3) if fci.is_triangle(t[0], t[1], t[2]) and fci.matrix[t[0], t[2]] == ">" and fci.matrix[t[2], t[0]] == "o"]
+        tmp = fci.get_triangles()
+        T = [t for t in tmp if fci.matrix[t[0], t[2]] == ">" and fci.matrix[t[2], t[0]] == "o"]
         for t in T:
             fci.rule8(t[0], t[1], t[2])
         couples = [(x, y) for (x, y) in fci.list_edges() if fci.matrix[x, y] == ">" and fci.matrix[y, x] == "o"] + [(x, y) for (y, x) in fci.list_edges() if fci.matrix[x, y] == ">" and fci.matrix[y, x] == "o"]
@@ -559,18 +578,18 @@ def run_FCI(df, alpha=0.05, useGum=True):
         graph = fci.matrix
     return fci
         
-def run_RFCI(df, alpha = 0.05, useGum=True):
-    fci = FCI(df, alpha=alpha)
+def run_RFCI(df, alpha = 0.05, useGum=True, bayesnet=None):
+    fci = FCI(df, alpha=alpha, bayesnet=bayesnet)
     fci.skeleton(useGum=useGum)
     fci.really_fast_v_orientation()
     graph = fci.matrix
     old_graph = np.full((fci.n, fci.n), "")
     while not np.array_equal(old_graph, graph):
         old_graph = graph.copy()
-        M = [t for t in itertools.permutations(range(fci.n), 3) if fci.unshielded_triple_in_order_ijk(t[0], t[1], t[2])]
+        M = fci.get_unshielded_triples()
         for t in M:
             fci.rule1(t[0], t[1], t[2])
-        T = [t for t in itertools.permutations(range(fci.n), 3) if fci.is_triangle(t[0], t[1], t[2])]
+        T = fci.get_triangles()
         for t in T:
             fci.rule2(t[0], t[1], t[2])
         C = [t for t in itertools.permutations(range(fci.n), 4)]
@@ -586,10 +605,11 @@ def run_RFCI(df, alpha = 0.05, useGum=True):
         triplets = list(itertools.permutations(range(fci.n), 3))
         for t in triplets:
             fci.rule6(t[0], t[1], t[2])
-        M = [t for t in itertools.permutations(range(fci.n), 3) if fci.unshielded_triple_in_order_ijk(t[0], t[1], t[2])]
+        M = fci.get_unshielded_triples()
         for t in M:
             fci.rule7(t[0], t[1], t[2])
-        T = [t for t in itertools.permutations(range(fci.n), 3) if fci.is_triangle(t[0], t[1], t[2]) and fci.matrix[t[0], t[2]] == ">" and fci.matrix[t[2], t[0]] == "o"]
+        tmp = fci.get_triangles()
+        T = [t for t in tmp if fci.matrix[t[0], t[2]] == ">" and fci.matrix[t[2], t[0]] == "o"]
         for t in T:
             fci.rule8(t[0], t[1], t[2])
         couples = [(x, y) for (x, y) in fci.list_edges() if fci.matrix[x, y] == ">" and fci.matrix[y, x] == "o"] + [(x, y) for (y, x) in fci.list_edges() if fci.matrix[x, y] == ">" and fci.matrix[y, x] == "o"]
