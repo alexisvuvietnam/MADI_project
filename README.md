@@ -16,7 +16,7 @@ Hello! This is the README file for the 2025/26 MADI project, part of the AI2D pr
 
 In this project, we study learning algorithms for causal inference and implement a pseudo-version of the FCI algorithm along with its variant RFCI. The implementation relies on several libraries for computing marginal and conditional independencies and for graph visualization.
 
-All necessary classes and functions are contained in FCI.py. In particular, the functions `run_FCI` and `run_RFCI` correspond to the two available algorithms.
+All necessary classes and functions are contained in `FCI.py`. In particular, the functions `run_FCI` and `run_RFCI` correspond to the two available algorithms.
 
 A `run_XXX` function takes the following main input parameters:
 - `df: pandas.DataFrame`: The Pandas DataFrame containing the learning dataset.
