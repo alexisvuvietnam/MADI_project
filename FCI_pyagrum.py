@@ -3,13 +3,17 @@ from dataclasses import dataclass
 import itertools
 import numpy as np
 import pandas as pd
+import pingouin as pg
+import graphviz
 
 # FCI CLASS
 
 class FCI:
     arrow_attributes = ["-", "o", ">"]
+    dot_attributes = ["none", "odot", "normal"]
 
     def __init__(self, df, alpha=0.05):
+        self.data = df
         self.variables = list(df.columns)
         self.n = len(self.variables)
         self.alpha = alpha
@@ -56,11 +60,15 @@ class FCI:
         x, y = edge
         return self.num_adjacents(x) + self.num_adjacents(x)
 
-    def isIndependent(self, X, Y, Z):
-        _, p = self.learner.G2(X, Y, Z)
+    def isIndependent(self, X, Y, Z, useGum=True):
+        p = 0.0
+        if useGum: _, p = self.learner.G2(X, Y, Z)
+        else:
+            tmp = pg.partial_corr(self.data, X, Y, Z)
+            p = tmp["p-val"].values[0]
         return p > self.alpha
 
-    def skeleton(self):
+    def skeleton(self, useGum=True):
         d = 0
         flag = True
         while flag:
@@ -75,9 +83,9 @@ class FCI:
                         if len(adj) > d:
                             flag = True
                             for Z in itertools.combinations([k for k in adj if k != x], d):
-                                if self.isIndependent(self.variables[i], self.variables[j], [self.variables[k] for k in Z]):
-                                    self.separators[(i, j)] = self.separators[(i, j)].union(set(Z))
-                                    self.separators[(j, i)] = self.separators[(j, i)].union(set(Z))
+                                if self.isIndependent(self.variables[i], self.variables[j], [self.variables[k] for k in Z], useGum=useGum):
+                                    self.separators[(i, j)] = set(Z)
+                                    self.separators[(j, i)] = set(Z)
                                     self.remove_edge(i, j)
                                     break
             d += 1
@@ -95,6 +103,11 @@ class FCI:
     
     def is_triangle(self, i, j, k):
         return self.exist_edge(i, j) and self.exist_edge(j, k) and self.exist_edge(i, k)
+    
+    def is_parent(self, i, j):
+        if self.exist_edge(i, j):
+            return self.matrix[i, j] == ">" and self.matrix[j, i] == "-"
+        return False
 
     def is_discriminating_path(self, path):
         if len(path) < 4:
@@ -107,9 +120,7 @@ class FCI:
         if not self.exist_edge(v, y):
             return False
         for i in range(1, len(path) - 2):
-            if not self.exist_edge(path[i], y):
-                return False
-            if self.matrix[path[i], y] != ">":
+            if not self.is_parent(path[i], y):
                 return False
             if not self.is_collider(path[i - 1], path[i], path[i + 1]):
                 return False
@@ -175,20 +186,25 @@ class FCI:
     #                 possible_d_sep[(i, j)] = self.get_possible_d_sep(i, j)
     #     return possible_d_sep
 
-    def refine_skeleton_with_pds(self):
+    def refine_skeleton_with_pds(self, useGum=True):
         for i in range(self.n):
+            pds = set()
+            for j in range(self.n):
+                pds = pds.union(self.get_possible_d_sep(i, j))
+            pds = pds - {i}
             adjs = self.list_adjacents(i)
             for j in adjs:
-                pds = self.get_possible_d_sep(i, j)
+                pds_j = pds - {j}
                 flag = False
                 for d in range(self.n - 1):
-                    if len(pds) > d:
+                    if len(pds_j) > d:
                         flag = True
-                        for Z in itertools.combinations(pds - {j}, d):
-                            if self.isIndependent(self.variables[i], self.variables[j], [self.variables[k] for k in Z]):
+                        for Z in itertools.combinations(pds_j, d):
+                            if self.isIndependent(self.variables[i], self.variables[j], [self.variables[k] for k in Z], useGum=useGum):
                                 self.separators[(i, j)] = self.separators[(i, j)].union(Z)
                                 self.separators[(j, i)] = self.separators[(j, i)].union(Z)
                                 self.remove_edge(i, j)
+                                flag = False
                                 break
                     if not flag: break
         self.matrix = np.where(self.matrix == " ", " ", "o")
@@ -322,13 +338,14 @@ class FCI:
 
     def rule7(self, v1, v2, v3):
         if self.exist_edge(v1, v2) and self.exist_edge(v2, v3) and not self.exist_edge(v1, v3):
-            if self.matrix[v1, v2] == "o" and self.matrix[v2, v1] == "-" and self.matrix[v3, v2] == "o":
+            if self.matrix[v1, v2] == self.matrix[v2, v1] and self.matrix[v3, v2] == "o":
                 self.matrix[v3, v2] = "-"
 
     def rule8(self, v1, v2, v3):
-        if self.exist_edge(v1, v2) and self.exist_edge(v2, v3) and self.exist_edge(v1, v3):
-            if self.matrix[v2, v1] == "-" and (self.matrix[v1, v2] == "o" or self.matrix[v1, v2] == ">") and self.matrix[v3, v2] == "-" and self.matrix[v2, v3] == ">" and self.matrix[v1, v3] == ">" and self.matrix[v3, v1] == "o":
-                self.matrix[v3, v1] = "-"
+        if self.is_triangle(v1, v2, v3):
+            if self.matrix[v2, v3] == ">" and self.matrix[v3, v2] == "-" and self.matrix[v2, v1] == "-" and self.matrix[v1, v2] != "-":
+                if self.matrix[v1, v3] == ">":
+                    if self.matrix[v3, v1] == "o": self.matrix[v3, v1] = "-"
 
     def rule9(self, v1, v2):
         if self.exist_edge(v1, v2):
@@ -364,7 +381,7 @@ class FCI:
                     return set(Z_list)
         return set()
     
-    def really_fast_v_orientation(self):
+    def really_fast_v_orientation(self, useGum=True):
         L = []
         triplets = list(itertools.permutations(range(self.n), r=3))
         M = [(t[0], t[1], t[2]) for t in triplets if self.unshielded_triple_in_order_ijk(t[0], t[1], t[2])]
@@ -375,8 +392,8 @@ class FCI:
             sep_ik = self.separators.get((i, k), set())
             cond_set_indices = sep_ik - {j}
             cond_set_variables = [self.variables[k] for k in cond_set_indices]
-            is_dep_ij = self.isIndependent(self.variables[i], self.variables[j], cond_set_variables)
-            is_dep_jk = self.isIndependent(self.variables[j], self.variables[k], cond_set_variables)
+            is_dep_ij = self.isIndependent(self.variables[i], self.variables[j], cond_set_variables, useGum=useGum)
+            is_dep_jk = self.isIndependent(self.variables[j], self.variables[k], cond_set_variables, useGum=useGum)
             if not (is_dep_ij or is_dep_jk):
                 if (i, j, k) not in L:
                     L.append((i, j, k))
@@ -480,224 +497,107 @@ class FCI:
             gum_graph.addArc(i, j)
         return gum_graph
     
-    def return_UndiMG(self):
-        edges = set()
+    def toDot(self):
+        dot = graphviz.Digraph()
+        dot.attr("node", shape="oval", fillcolor="#333333", textcolor="#eeeeee")
         for i in range(self.n):
-            for j in range(i + 1, self.n):
-                if self.exist_edge(i, j):
-                    if self.matrix[i, j] == self.matrix[j, i]:
-                        edges.add((i, j))
-        gum_graph = gum.MixedGraph()
-        for i in range(self.n):
-            gum_graph.addNodeWithId(i)
-        for (i, j) in edges:
-            gum_graph.addEdge(i, j)
-        return gum_graph
+            dot.node(str(i), label=self.variables[i])
+        list_edges = self.list_edges()
+        for (i, j) in list_edges:
+            dot.edge(str(i), str(j), arrowtail=FCI.dot_attributes[FCI.arrow_attributes.index(self.matrix[j, i])], arrowhead=FCI.dot_attributes[FCI.arrow_attributes.index(self.matrix[i, j])], dir="both")
+        return dot
 
-
-# FCI FAMILY
-
-def FCI_PC_pyagrum(df, alpha=0.05):
-    fci = FCI(df, alpha=alpha)
-    fci.skeleton()
-    triplets = list(itertools.permutations(range(fci.n), r=3))
-    for t in triplets:
+def run_FCI(df, alpha=0.05, useGum=True):
+    fci = FCI(df, alpha)
+    fci.skeleton(useGum=useGum)
+    M = [t for t in itertools.permutations(range(fci.n), 3) if fci.unshielded_triple_in_order_ijk(t[0], t[1], t[2])]
+    for t in M:
+        fci.rule0(t[0], t[1], t[2])
+    fci.refine_skeleton_with_pds(useGum=useGum)
+    fci.matrix = np.where(fci.matrix == " ", " ", "o")
+    M = [t for t in itertools.permutations(range(fci.n), 3) if fci.unshielded_triple_in_order_ijk(t[0], t[1], t[2])]
+    for t in M:
         fci.rule0(t[0], t[1], t[2])
     graph = fci.matrix
     old_graph = np.full((fci.n, fci.n), "")
     while not np.array_equal(old_graph, graph):
         old_graph = graph.copy()
-        fci.refine_skeleton_with_pds()
-        for t in triplets:
-            fci.rule0(t[0], t[1], t[2])
-        graph = fci.matrix
-    return fci
-
-def FCI_Zhang_pyagrum(df, alpha=0.05):
-    fci = FCI(df, alpha=alpha)
-    fci.skeleton()
-    triplets = list(itertools.permutations(range(fci.n), r=3))
-    for t in triplets:
-        fci.rule0(t[0], t[1], t[2])
-    graph = fci.matrix
-    old_graph = np.full((fci.n, fci.n), "")
-    while not np.array_equal(old_graph, graph):
-        old_graph = graph.copy()
-        for t in triplets:
+        M = [t for t in itertools.permutations(range(fci.n), 3) if fci.unshielded_triple_in_order_ijk(t[0], t[1], t[2])]
+        for t in M:
             fci.rule1(t[0], t[1], t[2])
-        for t in triplets:
+        T = [t for t in itertools.permutations(range(fci.n), 3) if fci.is_triangle(t[0], t[1], t[2])]
+        for t in T:
             fci.rule2(t[0], t[1], t[2])
-        for t in triplets:
-            for new_elem in range(fci.n):
-                if new_elem not in t:
-                    fci.rule3(t[0], t[1], t[2], new_elem)
+        C = [t for t in itertools.permutations(range(fci.n), 4)]
+        for t in C:
+            fci.rule3(t[0], t[1], t[2], t[3])
         paths = fci.list_discriminating_paths()
         for path in paths:
             fci.rule4(path)
         graph = fci.matrix
-    return fci
-
-def FCI_ETHZ_pyagrum(df, alpha=0.05):
-    fci = FCI(df, alpha=alpha)
-    fci.skeleton()
-    triplets = list(itertools.permutations(range(fci.n), r=3))
-    for t in triplets:
-        fci.rule0(t[0], t[1], t[2])
-    fci.refine_skeleton_with_pds()
-    for t in triplets:
-        fci.rule0(t[0], t[1], t[2])
-    graph = fci.matrix
     old_graph = np.full((fci.n, fci.n), "")
     while not np.array_equal(old_graph, graph):
         old_graph = graph.copy()
+        circle_edges = [(x, y) for (x, y) in fci.list_edges() if fci.is_circle_edge(x, y)] + [(y, x) for (x, y) in fci.list_edges() if fci.is_circle_edge(x, y)]
+        for (i, j) in circle_edges:
+            fci.rule5(i, j)
+        triplets = list(itertools.permutations(range(fci.n), 3))
         for t in triplets:
-            fci.rule1(t[0], t[1], t[2])
-        for t in triplets:
-            fci.rule2(t[0], t[1], t[2])
-        for t in triplets:
-            for new_elem in range(fci.n):
-                if new_elem not in t:
-                    fci.rule3(t[0], t[1], t[2], new_elem)
-        paths = fci.list_discriminating_paths()
-        for path in paths:
-            fci.rule4(path)
-        graph = fci.matrix
-    couples = list(itertools.permutations(range(fci.n), r=2))
-    quadruplets = list(itertools.permutations(range(fci.n), r=4))
-    graph = fci.matrix
-    old_graph = np.full((fci.n, fci.n), "")
-    while not np.array_equal(old_graph, graph):
-        for (x, y) in couples:
-            fci.rule5(x, y)
-        for (x, y, z) in triplets:
-            fci.rule6(x, y, z)
-        for (x, y, z) in triplets:
-            fci.rule7(x, y, z)
-        old_graph = graph.copy()
-        graph = fci.matrix
-    old_graph = np.full((fci.n, fci.n), "")
-    while not np.array_equal(old_graph, graph):
-        for (x, y, z) in triplets:
-            fci.rule8(x, y, z)
+            fci.rule6(t[0], t[1], t[2])
+        M = [t for t in itertools.permutations(range(fci.n), 3) if fci.unshielded_triple_in_order_ijk(t[0], t[1], t[2])]
+        for t in M:
+            fci.rule7(t[0], t[1], t[2])
+        T = [t for t in itertools.permutations(range(fci.n), 3) if fci.is_triangle(t[0], t[1], t[2]) and fci.matrix[t[0], t[2]] == ">" and fci.matrix[t[2], t[0]] == "o"]
+        for t in T:
+            fci.rule8(t[0], t[1], t[2])
+        couples = [(x, y) for (x, y) in fci.list_edges() if fci.matrix[x, y] == ">" and fci.matrix[y, x] == "o"] + [(x, y) for (y, x) in fci.list_edges() if fci.matrix[x, y] == ">" and fci.matrix[y, x] == "o"]
         for (x, y) in couples:
             fci.rule9(x, y)
-        for (x, y, z, t) in quadruplets:
-            fci.rule10(x, y, z, t)
-        old_graph = graph.copy()
+        C = [t for t in itertools.permutations(range(fci.n), 4)]
+        for t in C:
+            fci.rule10(t[0], t[1], t[2], t[3])
         graph = fci.matrix
     return fci
-
-def FCI_final_pyagrum(df, alpha=0.05):
+        
+def run_RFCI(df, alpha = 0.05, useGum=True):
     fci = FCI(df, alpha=alpha)
-    fci.skeleton()
-    triplets = list(itertools.permutations(range(fci.n), r=3))
-    for t in triplets:
-        fci.rule0(t[0], t[1], t[2])
-    graph = fci.matrix
-    old_graph = np.full((fci.n, fci.n), "")
-    while not np.array_equal(old_graph, graph):
-        old_graph = graph.copy()
-        for t in triplets:
-            fci.rule1(t[0], t[1], t[2])
-        for t in triplets:
-            fci.rule2(t[0], t[1], t[2])
-        for t in triplets:
-            for new_elem in range(fci.n):
-                if new_elem not in t:
-                    fci.rule3(t[0], t[1], t[2], new_elem)
-        paths = fci.list_discriminating_paths()
-        for path in paths:
-            fci.rule4(path)
-        graph = fci.matrix
-    couples = list(itertools.permutations(range(fci.n), r=2))
-    quadruplets = list(itertools.permutations(range(fci.n), r=4))
-    graph = fci.matrix
-    old_graph = np.full((fci.n, fci.n), "")
-    while not np.array_equal(old_graph, graph):
-        for (x, y) in couples:
-            fci.rule5(x, y)
-        for (x, y, z) in triplets:
-            fci.rule6(x, y, z)
-        M = [(x, y, z) for (x, y, z) in triplets if fci.unshielded_triple_in_order_ijk(x, y, z) and x < z]
-        for (x, y, z) in M:
-            fci.rule7(x, y, z)
-        old_graph = graph.copy()
-        graph = fci.matrix
-    old_graph = np.full((fci.n, fci.n), "")
-    while not np.array_equal(old_graph, graph):
-        for (x, y, z) in triplets:
-            fci.rule8(x, y, z)
-        for (x, y) in couples:
-            fci.rule9(x, y)
-        for (x, y, z, t) in quadruplets:
-            fci.rule10(x, y, z, t)
-        old_graph = graph.copy()
-        graph = fci.matrix
-    return fci
-
-
-def AFCI_Zhang_pyagrum(df, alpha = 0.05):
-    fci = FCI_Zhang_pyagrum(df, alpha)
-    couples = list(itertools.permutations(range(fci.n), r=2))
-    triplets = list(itertools.permutations(range(fci.n), r=3))
-    quadruplets = list(itertools.permutations(range(fci.n), r=4))
-    graph = fci.matrix
-    old_graph = np.full((fci.n, fci.n), "")
-    while not np.array_equal(old_graph, graph):
-        for (x, y) in couples:
-            fci.rule5(x, y)
-        for (x, y, z) in triplets:
-            fci.rule6(x, y, z)
-        for (x, y, z) in triplets:
-            fci.rule7(x, y, z)
-        old_graph = graph.copy()
-        graph = fci.matrix
-    old_graph = np.full((fci.n, fci.n), "")
-    while not np.array_equal(old_graph, graph):
-        for (x, y, z) in triplets:
-            fci.rule8(x, y, z)
-        for (x, y) in couples:
-            fci.rule9(x, y)
-        for (x, y, z, t) in quadruplets:
-            fci.rule10(x, y, z, t)
-        old_graph = graph.copy()
-        graph = fci.matrix
-    return fci
-
-def RFCI(df, alpha = 0.05):
-    fci = FCI(df, alpha=alpha)
-    fci.PC_skeleton()
+    fci.skeleton(useGum=useGum)
     fci.really_fast_v_orientation()
-    couples = list(itertools.permutations(range(fci.n), r=2))
-    triplets = list(itertools.permutations(range(fci.n), r=3))
-    quadruplets = list(itertools.permutations(range(fci.n), r=4))
     graph = fci.matrix
     old_graph = np.full((fci.n, fci.n), "")
     while not np.array_equal(old_graph, graph):
         old_graph = graph.copy()
-        for t in triplets:
+        M = [t for t in itertools.permutations(range(fci.n), 3) if fci.unshielded_triple_in_order_ijk(t[0], t[1], t[2])]
+        for t in M:
             fci.rule1(t[0], t[1], t[2])
-        for t in triplets:
+        T = [t for t in itertools.permutations(range(fci.n), 3) if fci.is_triangle(t[0], t[1], t[2])]
+        for t in T:
             fci.rule2(t[0], t[1], t[2])
-        for t in triplets:
-            for new_elem in range(fci.n):
-                if new_elem not in t:
-                    fci.rule3(t[0], t[1], t[2], new_elem)
+        C = [t for t in itertools.permutations(range(fci.n), 4)]
+        for t in C:
+            fci.rule3(t[0], t[1], t[2], t[3])
         potential_paths = fci.list_discriminating_paths()
         potential_paths.sort(key=len)
         for path in potential_paths:
             fci.rule4_rfci(path)
-        for (x, y) in couples:
-            fci.rule5(x, y)
-        for (x, y, z) in triplets:
-            fci.rule6(x, y, z)
-        for (x, y, z) in triplets:
-            fci.rule7(x, y, z)
-        for (x, y, z) in triplets:
-            fci.rule8(x, y, z)
+        circle_edges = [(x, y) for (x, y) in fci.list_edges() if fci.is_circle_edge(x, y)] + [(y, x) for (x, y) in fci.list_edges() if fci.is_circle_edge(x, y)]
+        for (i, j) in circle_edges:
+            fci.rule5(i, j)
+        triplets = list(itertools.permutations(range(fci.n), 3))
+        for t in triplets:
+            fci.rule6(t[0], t[1], t[2])
+        M = [t for t in itertools.permutations(range(fci.n), 3) if fci.unshielded_triple_in_order_ijk(t[0], t[1], t[2])]
+        for t in M:
+            fci.rule7(t[0], t[1], t[2])
+        T = [t for t in itertools.permutations(range(fci.n), 3) if fci.is_triangle(t[0], t[1], t[2]) and fci.matrix[t[0], t[2]] == ">" and fci.matrix[t[2], t[0]] == "o"]
+        for t in T:
+            fci.rule8(t[0], t[1], t[2])
+        couples = [(x, y) for (x, y) in fci.list_edges() if fci.matrix[x, y] == ">" and fci.matrix[y, x] == "o"] + [(x, y) for (y, x) in fci.list_edges() if fci.matrix[x, y] == ">" and fci.matrix[y, x] == "o"]
         for (x, y) in couples:
             fci.rule9(x, y)
-        for (x, y, z, t) in quadruplets:
-            fci.rule10(x, y, z, t)
+        C = [t for t in itertools.permutations(range(fci.n), 4)]
+        for t in C:
+            fci.rule10(t[0], t[1], t[2], t[3])
         graph = fci.matrix
     return fci
+    
