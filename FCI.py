@@ -490,29 +490,51 @@ class FCI:
     def triangle_for_rfci(self, l, j, k):
         return self.is_triangle(l, j, k) and self.matrix[k, j] == "o" and self.matrix[j, l] == ">" and self.matrix[l, k] == ">" and self.matrix[k, l] == "-"
 
-    def return_PDAG(self):
+    def return_PDAG(self, opt=1):
         edges = set()
         arcs = set()
-        for i in range(self.n):
-            for j in range(i + 1, self.n):
-                if self.exist_edge(i, j):
-                    if self.matrix[i, j] == ">" and self.matrix[j, i] != ">":
-                        arcs.add((i, j))
-                    elif self.matrix[i, j] != ">" and self.matrix[j, i] == ">":
-                        arcs.add((j, i))
-                    else:
-                        edges.add((i, j))
+        if opt == 1:
+            for i in range(self.n):
+                for j in range(i + 1, self.n):
+                    if self.exist_edge(i, j):
+                        if self.matrix[i, j] == self.matrix[j, i]:
+                            edges.add((i, j))
+                        elif FCI.arrow_attributes.index(self.matrix[i, j]) > FCI.arrow_attributes.index(self.matrix[j, i]):
+                            arcs.add((i, j))
+                        else:
+                            arcs.add((j, i))
+        elif opt == 2:
+            for i in range(self.n):
+                for j in range(i + 1, self.n):
+                    if self.exist_edge(i, j):
+                        if self.matrix[i, j] == ">" and self.matrix[j, i] != ">":
+                            arcs.add((i, j))
+                        elif self.matrix[i, j] != ">" and self.matrix[j, i] == ">":
+                            arcs.add((j, i))
+                        else:
+                            edges.add((i, j))
+        elif opt == 3:
+            for i in range(self.n):
+                for j in range(i + 1, self.n):
+                    if self.exist_edge(i, j):
+                        if self.matrix[i, j] == ">" and self.matrix[j, i] == "-":
+                            arcs.add((i, j))
+                        elif self.matrix[i, j] == "-" and self.matrix[j, i] == ">":
+                            arcs.add((j, i))
+                        else:
+                            edges.add((i, j))
+        else: return None
         gum_graph = gum.PDAG()
         for i in range(self.n):
             gum_graph.addNodeWithId(i)
-        for (i, j) in edges:
-            try:
-                gum_graph.addEdge(i, j)
-            except:
-                pass
         for (i, j) in arcs:
             try:
                 gum_graph.addArc(i, j)
+            except:
+                edges.add((i, j))
+        for (i, j) in edges:
+            try:
+                gum_graph.addEdge(i, j)
             except:
                 pass
         return gum_graph
