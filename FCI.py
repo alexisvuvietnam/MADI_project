@@ -3,8 +3,8 @@ from dataclasses import dataclass
 import itertools
 import numpy as np
 import pandas as pd
-import pingouin as pg
 import graphviz
+import pgmpy
 
 # FCI CLASS
 
@@ -18,12 +18,12 @@ class FCI:
         self.n = len(self.variables)
         self.alpha = alpha
 
-        # Create BNLearner
         self.bayesnet = bayesnet
+        # Create BNLearner
         if self.bayesnet is not None:
-            self.learner = gum.BNLearner(df, self.bayesnet)
+            self.learner = gum.BNLearner(self.data, self.bayesnet)
         else:
-            self.learner = gum.BNLearner(df)
+            self.learner = gum.BNLearner(self.data)
         
         # Implement initial graph
         self.matrix = np.full((self.n, self.n), "o")
@@ -63,9 +63,7 @@ class FCI:
     def isIndependent(self, X, Y, Z, useGum=True):
         p = 0.0
         if useGum: _, p = self.learner.G2(X, Y, Z)
-        else:
-            tmp = pg.partial_corr(data=self.data, x=X, y=Y, covar=Z)
-            p = tmp["p-val"].values[0]
+        else: _, p, _ = pgmpy.estimators.CITests.g_sq(X, Y, Z, self.data, boolean=False)
         return p > self.alpha
 
     def skeleton(self, useGum=True):
