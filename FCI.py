@@ -59,16 +59,12 @@ class FCI:
                 if self.exist_edge(i, j):
                     L.append((i, j))
         return L
-    
-    def key(self, edge):
-        x, y = edge
-        return self.num_adjacents(x) + self.num_adjacents(x)
 
     def isIndependent(self, X, Y, Z, useGum=True):
         p = 0.0
         if useGum: _, p = self.learner.G2(X, Y, Z)
         else:
-            tmp = pg.partial_corr(self.data, X, Y, Z)
+            tmp = pg.partial_corr(data=self.data, x=X, y=Y, covar=Z)
             p = tmp["p-val"].values[0]
         return p > self.alpha
 
@@ -500,9 +496,9 @@ class FCI:
         for i in range(self.n):
             for j in range(i + 1, self.n):
                 if self.exist_edge(i, j):
-                    if self.matrix[i, j] == ">" and self.matrix[j, i] == "-":
+                    if self.matrix[i, j] == ">" and self.matrix[j, i] != ">":
                         arcs.add((i, j))
-                    elif self.matrix[i, j] == "-" and self.matrix[j, i] == ">":
+                    elif self.matrix[i, j] != ">" and self.matrix[j, i] == ">":
                         arcs.add((j, i))
                     else:
                         edges.add((i, j))
@@ -510,19 +506,25 @@ class FCI:
         for i in range(self.n):
             gum_graph.addNodeWithId(i)
         for (i, j) in edges:
-            gum_graph.addEdge(i, j)
+            try:
+                gum_graph.addEdge(i, j)
+            except:
+                pass
         for (i, j) in arcs:
-            gum_graph.addArc(i, j)
+            try:
+                gum_graph.addArc(i, j)
+            except:
+                pass
         return gum_graph
     
     def toDot(self):
         dot = graphviz.Digraph()
         dot.attr("node", shape="oval", fillcolor="#333333", textcolor="#eeeeee")
         for i in range(self.n):
-            dot.node(str(i), label=self.variables[i])
+            dot.node(self.variables[i])
         list_edges = self.list_edges()
         for (i, j) in list_edges:
-            dot.edge(str(i), str(j), arrowtail=FCI.dot_attributes[FCI.arrow_attributes.index(self.matrix[j, i])], arrowhead=FCI.dot_attributes[FCI.arrow_attributes.index(self.matrix[i, j])], dir="both")
+            dot.edge(self.variables[i], self.variables[j], arrowtail=FCI.dot_attributes[FCI.arrow_attributes.index(self.matrix[j, i])], arrowhead=FCI.dot_attributes[FCI.arrow_attributes.index(self.matrix[i, j])], dir="both")
         return dot
 
 def run_FCI(df, alpha=0.05, useGum=True, bayesnet=None):
