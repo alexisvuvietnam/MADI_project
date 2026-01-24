@@ -547,7 +547,7 @@ class FCI:
             dot.edge(self.variables[i], self.variables[j], arrowtail=FCI.dot_attributes[FCI.arrow_attributes.index(self.matrix[j, i])], arrowhead=FCI.dot_attributes[FCI.arrow_attributes.index(self.matrix[i, j])], dir="both")
         return dot
 
-def run_FCI(df, alpha=0.05, useGum=True, bayesnet=None):
+def run_FCI(df, alpha=0.05, useGum=False, bayesnet=None):
     fci = FCI(df, alpha=alpha, bayesnet=bayesnet)
     fci.skeleton(useGum=useGum)
     M = fci.get_unshielded_triples()
@@ -600,7 +600,7 @@ def run_FCI(df, alpha=0.05, useGum=True, bayesnet=None):
         graph = fci.matrix
     return fci
         
-def run_RFCI(df, alpha = 0.05, useGum=True, bayesnet=None):
+def run_RFCI(df, alpha = 0.05, useGum=False, bayesnet=None):
     fci = FCI(df, alpha=alpha, bayesnet=bayesnet)
     fci.skeleton(useGum=useGum)
     fci.really_fast_v_orientation()
