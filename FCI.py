@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import graphviz
 import pgmpy
+import scipy
 
 # FCI CLASS
 
@@ -538,10 +539,10 @@ class FCI:
         return gum_graph
     
     def toDot(self):
-        dot = graphviz.Digraph()
-        dot.attr("node", shape="oval", fillcolor="#333333", textcolor="#eeeeee")
+        dot = graphviz.Digraph("Output PAG", node_attr={"shape": "oval", "fillcolor": "#333333", "textcolor": "#eeeeee"})
+        dot.attr("node")
         for i in range(self.n):
-            dot.node(self.variables[i])
+            dot.node(self.variables[i], label=f"{i}: {self.variables[i]}")
         list_edges = self.list_edges()
         for (i, j) in list_edges:
             dot.edge(self.variables[i], self.variables[j], arrowtail=FCI.dot_attributes[FCI.arrow_attributes.index(self.matrix[j, i])], arrowhead=FCI.dot_attributes[FCI.arrow_attributes.index(self.matrix[i, j])], dir="both")
