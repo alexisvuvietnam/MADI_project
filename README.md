@@ -23,7 +23,7 @@ A `run_XXX` function takes the following main input parameters:
 - `alpha: float`: The significance level (p-value threshold) used to assess independence.
 - `useGum: bool`: A boolean parameter, set to False by default:
     - If `useGum` is set to `True`, the method `pyagrum.BNLearner.G2` is used to compute independencies.
-    - If `useGum` is set to `False`, the function `pingouin.partial_corr` is used to compute independencies.
+    - If `useGum` is set to `False`, the function `pgmpy.estimators.CITests.g_sq` is used to compute independencies.
 - `bayesnet: Optional[pyagrum.BayesNet]`: The Bayesian network associated with the input dataset, if available.
 
 Experimental analyses for the empirical study are implemented in the Python notebook `test.ipynb`.
