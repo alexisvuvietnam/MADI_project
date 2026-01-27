@@ -30,7 +30,7 @@ Experimental analyses for the empirical study are implemented in the Python note
 
 ### Requirements<a name="req"></a>
 
-```text
+```txt
 python>=3.10
 pyagrum>=2.3
 numpy>=2.2
@@ -39,6 +39,7 @@ pandas>=0.5
 bnlearn>=0.12
 graphviz>=0.21
 IPython>=9.9
+pgmpy>=0.1
 ```
 
 ### Structure<a name="file"></a>
