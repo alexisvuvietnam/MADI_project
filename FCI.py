@@ -4,7 +4,7 @@ import itertools
 import numpy as np
 import pandas as pd
 import graphviz
-import pgmpy
+from pgmpy.estimators import CITests
 import scipy
 
 # FCI CLASS
@@ -37,6 +37,9 @@ class FCI:
             for j in range(self.n):
                 if i != j:
                     self.separators[(i, j)] = set()
+
+    def get_variables(self):
+        return {key : value for key,value in enumerate(self.variables)}
     
     def exist_edge(self, i, j):
         if i == j: return False
@@ -64,7 +67,7 @@ class FCI:
     def isIndependent(self, X, Y, Z, useGum=True):
         p = 0.0
         if useGum: _, p = self.learner.G2(X, Y, Z)
-        else: _, p, _ = pgmpy.estimators.CITests.g_sq(X, Y, Z, self.data, boolean=False)
+        else: _, p, _ = CITests.g_sq(X, Y, Z, self.data, boolean=False)
         return p > self.alpha
 
     def skeleton(self, useGum=True):
@@ -82,12 +85,24 @@ class FCI:
                         if len(adj) > d:
                             flag = True
                             for Z in itertools.combinations([k for k in adj if k != x], d):
+                                # print(f"skeleton {Z=}")
                                 if self.isIndependent(self.variables[i], self.variables[j], [self.variables[k] for k in Z], useGum=useGum):
                                     self.separators[(i, j)] = set(Z)
                                     self.separators[(j, i)] = set(Z)
                                     self.remove_edge(i, j)
                                     break
             d += 1
+
+    def get_separators(self):
+        sep_set = self.separators.copy()
+        result = dict()
+        visited = []
+        for i,j in sep_set.keys():
+            if (i,j) not in visited or (j,i) not in visited:
+                result[(i,j)]= self.separators[(i,j)].union(self.separators[(j,i)])
+                visited.append((i,j))
+                visited.append((j,i))
+        return result
 
     def unshielded_triple_in_order_ijk(self, i, j, k):
         return self.exist_edge(i, j) and self.exist_edge(j, k) and not self.exist_edge(i, k)
@@ -538,11 +553,14 @@ class FCI:
                 pass
         return gum_graph
     
+    def get_certain_edges(self):
+        return 
+    
     def toDot(self):
         dot = graphviz.Digraph("Output PAG", node_attr={"shape": "oval", "fillcolor": "#333333", "textcolor": "#eeeeee"})
         dot.attr("node")
         for i in range(self.n):
-            dot.node(self.variables[i], label=f"{i}: {self.variables[i]}")
+            dot.node(self.variables[i], label=f"{self.variables[i]}")
         list_edges = self.list_edges()
         for (i, j) in list_edges:
             dot.edge(self.variables[i], self.variables[j], arrowtail=FCI.dot_attributes[FCI.arrow_attributes.index(self.matrix[j, i])], arrowhead=FCI.dot_attributes[FCI.arrow_attributes.index(self.matrix[i, j])], dir="both")
