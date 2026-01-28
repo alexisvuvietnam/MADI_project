@@ -26,7 +26,7 @@ A `run_XXX` function takes the following main input parameters:
     - If `useGum` is set to `False`, the function `pgmpy.estimators.CITests.g_sq` is used to compute independencies.
 - `bayesnet: Optional[pyagrum.BayesNet]`: The Bayesian network associated with the input dataset, if available.
 
-Experimental analyses for the empirical study are implemented in the Python notebook `test.ipynb`.
+Experimental analyses for the empirical study are implemented in the Python notebook `fci_test.ipynb`.
 
 ### Requirements<a name="req"></a>
 
@@ -34,6 +34,7 @@ Experimental analyses for the empirical study are implemented in the Python note
 python>=3.10
 pyagrum>=2.3
 numpy>=2.2
+scipy>=1.10
 causallearn>=0.1
 pandas>=0.5
 bnlearn>=0.12
@@ -46,7 +47,9 @@ pgmpy>=0.1
 
 ```bash
 .
-├─ FCI.py
-├─ test.ipynb
+├─ FCI.py           # Main FCI/RFCI algorithm implementation
+├─ utils.py         # Helper functions for testing and visualization
+├─ test.ipynb       # Additional test cases
+├─ fci_tests.ipynb  # Experimental analyses
 ├─ README.md
 ```
