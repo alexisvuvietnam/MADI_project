@@ -28,12 +28,6 @@ def get_BNlabel_nodes(bn, lantent_var=None):
             res[n-1] = bn.variable(n).name()
     return res
 
-
-def labelize_edge(mapp, edge):
-    i,j = edge
-    return mapp[i],mapp[j]
-
-
 def get_fci_structure(fci):
     '''
     Use for the structure analysis comparison. 
@@ -73,7 +67,8 @@ def get_fci_structure(fci):
 
     labels = fci.get_variables()
     # print('FCI', labels)
-    edges_labeled = set(map(lambda e : labelize_edge(labels, e), edges))
+    edges_labeled = {tuple(sorted([labels[i], labels[j]])) for (i, j) in edges}
+
 
     return {
         'edges' : edges_labeled, 
@@ -97,8 +92,9 @@ def get_miic_structure(miic, bn, latent_variable=None):
     
     labels = get_BNlabel_nodes(bn, latent_variable)
     # print('BN', labels)
-    arcs_labeled = set(map(lambda e : labelize_edge(labels, e), arcs))
-    edges_labeled = set(map(lambda e : labelize_edge(labels, e), edges))
+    arcs_labeled = {tuple(sorted([labels[i], labels[j]])) for (i, j) in arcs}
+    edges_labeled = {tuple(sorted([labels[i], labels[j]])) for (i, j) in edges}
+
 
     return  {
         'skeleton' : edges_labeled.union(arcs_labeled),
@@ -134,7 +130,7 @@ def compare_structures(fci, miic, bn, fci_time, miic_time, latent_variable=None,
         print(f"       - Arcs: {miic_struct['num_arcs']}")
         print(f"\nSimilarité:")
         print(f"  Arêtes communes: {common_edges}")
-        print(f"  Jaccard similarity: {jaccard_similarity:.3f}")
+        print(f"  Jaccard similarity sur squelette: {jaccard_similarity:.3f}")
         print(f"\nTemps d'exécution:")
         print(f"  FCI:  {fci_time:.3f}s")
         print(f"  MIIC: {miic_time:.3f}s")
@@ -178,59 +174,3 @@ def labelize_pdag_nodes(pdag, struct, latent_var=None):
     for (i,j) in pdag.arcs():
         dot.edge(labels[i], labels[j], dir="forward")
     return dot
-
-
-# if __name__=='__main__':
-#     # Création d'un réseau bayésien simple avec une structure connue
-#     print("📝 Test 1: Réseau simple (4 variables)")
-#     print("-" * 60)
-
-#     bn_simple = gum.BayesNet("Simple_Network")
-
-#     # Ajout des variables
-#     a = bn_simple.add(gum.LabelizedVariable('A', 'Variable A', 2))
-#     b = bn_simple.add(gum.LabelizedVariable('B', 'Variable B', 2))
-#     c = bn_simple.add(gum.LabelizedVariable('C', 'Variable C', 2))
-#     d = bn_simple.add(gum.LabelizedVariable('D', 'Variable D', 2))
-#     e = bn_simple.add(gum.LabelizedVariable('E', 'Variable E', 2))
-
-
-#     # Ajout des arcs
-#     bn_simple.addArc(a, b)
-#     bn_simple.addArc(a, d)
-#     bn_simple.addArc(b, e)
-#     bn_simple.addArc(c, b)
-#     bn_simple.addArc(c, e)
-#     bn_simple.addArc(d, c)
-
-
-#     # Génération des CPTs aléatoires
-#     bn_simple.generateCPTs()
-
-#     print(f"Réseau créé: {bn_simple.size()} variables, {bn_simple.sizeArcs()} arcs")
-
-#     df_simple,_ = generate_test_data(bn_simple, n_samples=1000)
-
-#     learner_simple = gum.BNLearner(df_simple, bn_simple)
-
-#     def run_miic(learner):
-#         learner.useMIIC()
-#         return learner.learnPDAG()
-
-#     miic_simple, miic_time_simple = measure_execution_time(run_miic, learner_simple)
-#     print(f"MIIC terminé en {miic_time_simple:.3f}s")
-
-#     # print(labelize_pdag_nodes(miic_simple,bn_simple))
-
-#     labels = get_BNlabel_nodes(bn_simple)
-#     print(labels)
-#     edges = miic_simple.edges()
-#     print(edges)
-#     edges = map(lambda edge : labelize_edge(labels, edge), edges)
-#     print(list(edges))
-
-#     # Visualisation du résultat MIIC
-#     # print("\nPDAG résultant (MIIC):")
-#     # print(miic_simple.toDot())
-#     # print(utils.get_variablesBN(bn_simple))
-#     # Source(miic_simple.toDot())
