@@ -2,7 +2,7 @@ import pyagrum as gum
 import time
 from FCI import FCI
 from graphviz import Digraph, Source
-
+from operator import xor
 
 
 def generate_test_data(bn, n_samples = 1000):
@@ -33,94 +33,127 @@ def labelize_edge(mapp, edge):
     i,j = edge
     return mapp[i],mapp[j]
 
-# def compare_structure_pdag(fci, miic_pdag, bn, opt=2):
-#     '''
-#     Comparison of structure between fci and miic
-    
-#     :param FCI fci: 
-#     :param miic_pdag: resulting of MIIC
-#     '''
 
-#     fci_pdag = fci.return_PDAG(opt=opt)
-
-#     fci_edges = fci_pdag.edges()
-#     fci_arcs = fci_pdag.arcs()
-    
-#     miic_edges = miic_pdag.edges()
-#     miic_arcs = miic_pdag.arcs()
-
-#     labels = fci.get_variables()
-#     fci_edges = set(map(lambda edge : labelize_edge(labels, edge), fci_edges))
-#     labels = get_BNlabel_nodes(bn)
-#     miic_arcs = set(map(lambda edge : labelize_edge(labels, edge), miic_arcs))
-#     miic_edges = set(map(lambda edge : labelize_edge(labels, edge), miic_edges))
-
-#     common_edges = len(fci_arcs & miic_arcs) + len(fci_edges & miic_edges)
-#     total_fci = len(fci_edges) + len(fci_arcs)
-#     total_miic = len(miic_edges) + len(miic_arcs)
-#     jaccard_similarity = common_edges / (total_fci + total_miic - common_edges) if (total_fci + total_miic - common_edges) > 0 else 0
-
-#     return {
-#         'fci_edges' : len(fci_edges),
-#         'fci_arcs' : len(fci_arcs),
-#         'miic_edges' : len(miic_edges),
-#         'miic_arcs' : len(miic_arcs),
-#         'common_edges' : common_edges,
-#         'jaccard_similarity' : jaccard_similarity
-#     }
-
-def compare_structures(fci, miic_pdag, bn):
+def get_fci_structure(fci):
     '''
-    Comparison of structure between fci and miic
-    
-    :param FCI fci: 
-    :param miic_pdag: resulting of MIIC
+    Use for the structure analysis comparison. 
+    Returns:
+        - skeleton edges set() labelized
+        - oriented edges (X*->Y)
+        - totally oriented edges (X->Y or X<->Y)
+        - number of circles tails (Xo-*Y)
+        - certainty score 
     '''
-    fci_edges = set(fci.list_edges())
 
-    # On consière que l'arête est orienté si elle est de la forme X*->Y
-    fci_oriented = set()
-    fci_unoriented = set()
-    fci_circle = 0
+    edges = set(fci.list_edges())
+
+    num_oriented = 0
+    num_totally_oriented = 0
+    num_circles = 0
     
-    for (i, j) in fci_edges:
-        if fci.matrix[i, j] == ">" or fci.matrix[j, i] == ">":
-            fci_oriented.add((i, j))
+    for (i, j) in edges:
+        if xor(fci.matrix[i, j] == ">", fci.matrix[j, i] == ">"):
+            # oriented.add((i, j))
+            num_oriented += 1
+            if fci.matrix[i, j] == "-" or fci.matrix[j, i] == "-":
+                # totally_oriented.add((i,j))
+                num_totally_oriented += 1
         elif fci.matrix[i, j] == ">" and fci.matrix[j, i] == ">":
-            fci_oriented.add((j, i))
-        else :
-            fci_unoriented.add(tuple(sorted([i, j])))
-        if fci.matrix[i,j] == 'o' ^ fci.matrix[j,i]=='o':
-            fci_circle += 1
-        elif fci.matrix[i,j]=='o' and fci.matrix[j,i]=='o':
-            fci_circle += 2
+            # oriented.add((j, i))
+            # totally_oriented.add((j,i))
+            num_oriented += 1
+            num_totally_oriented += 1
 
-    
-    miic_edges = miic_pdag.edges()
-    miic_arcs = miic_pdag.arcs()
-    
+        if xor(fci.matrix[i,j] == 'o', fci.matrix[j,i]=='o'):
+            num_circles += 1
+        elif fci.matrix[i,j]=='o' and fci.matrix[j,i]=='o':
+            num_circles += 2
+        
+    certainty_score = num_circles / (2 * len(edges)) if len(edges) > 0 else 0
+
     labels = fci.get_variables()
-    print('FCI', labels)
-    fci_edges = set(map(lambda edge : labelize_edge(labels, edge), fci_edges))
-    labels = get_BNlabel_nodes(bn)
-    print('BN', labels)
-    miic_arcs = set(map(lambda edge : labelize_edge(labels, edge), miic_arcs))
-    miic_edges = set(map(lambda edge : labelize_edge(labels, edge), miic_edges))
-    
-    common_edges = len(fci_edges & (miic_edges | miic_arcs))
-    
-    total_fci = len(fci_edges)
-    total_miic = len(miic_edges) + len(miic_arcs)
-    jaccard_similarity = common_edges / (total_fci + total_miic - common_edges) if (total_fci + total_miic - common_edges) > 0 else 0
+    # print('FCI', labels)
+    edges_labeled = set(map(lambda e : labelize_edge(labels, e), edges))
 
     return {
-        'fci_edges' : len(fci_edges),
-        'fci_unoriented' : len(fci_unoriented),
-        'fci_oriented' : len(fci_oriented),
-        'miic_edges' : len(miic_edges),
-        'miic_arcs' : len(miic_arcs),
-        'common_edges' : common_edges,
-        'jaccard_similarity' : jaccard_similarity
+        'edges' : edges_labeled, 
+        'num_oriented' : num_oriented, 
+        'num_totally_oriented' : num_totally_oriented,
+        'num_circles' : num_circles,
+        'certainty_score' : certainty_score
+    }
+
+
+def get_miic_structure(miic, bn, latent_variable=None):
+    '''
+    Returns:
+        - skeleton
+        - edges
+        - arcs
+    '''
+    edges = miic.edges()
+    arcs = miic.arcs()
+    
+    
+    labels = get_BNlabel_nodes(bn, latent_variable)
+    # print('BN', labels)
+    arcs_labeled = set(map(lambda e : labelize_edge(labels, e), arcs))
+    edges_labeled = set(map(lambda e : labelize_edge(labels, e), edges))
+
+    return  {
+        'skeleton' : edges_labeled.union(arcs_labeled),
+        'num_edges': len(edges),
+        'num_arcs' : len(arcs)
+    }
+
+def compare_structures(fci, miic, bn, fci_time, miic_time, latent_variable=None, verbose=True):
+    '''
+    Comparison of structure between fci and miic.
+    It prints the information.
+    '''
+    fci_struct = get_fci_structure(fci)
+    miic_struct = get_miic_structure(miic, bn, latent_variable)
+
+    common_edges = len(fci_struct['edges'] & miic_struct['skeleton'])
+    
+    total_fci = len(fci_struct['edges'])
+    total_miic = len(miic_struct['skeleton'])
+    jaccard_similarity = common_edges / (total_fci + total_miic - common_edges) if (total_fci + total_miic - common_edges) > 0 else 0
+    t_ratio = fci_time/miic_time
+
+    # Print results
+    if verbose :
+        print("-" * 60)
+        print("COMPARAISON FCI vs MIIC")
+        print("-" * 60)
+        print(f"Structure:")
+        print(f"  FCI  - Total arêtes du squelette: {total_fci}")
+        print(f"       - Orientées: {fci_struct['num_oriented']}")
+        print(f"       - Taux de certitude: {fci_struct['certainty_score']*100:.0f}% ({fci_struct['num_circles']}/{2*total_fci})")
+        print(f"  MIIC - Total arêtes du squelette : {total_miic}")
+        print(f"       - Arcs: {miic_struct['num_arcs']}")
+        print(f"\nSimilarité:")
+        print(f"  Arêtes communes: {common_edges}")
+        print(f"  Jaccard similarity: {jaccard_similarity:.3f}")
+        print(f"\nTemps d'exécution:")
+        print(f"  FCI:  {fci_time:.3f}s")
+        print(f"  MIIC: {miic_time:.3f}s")
+        print(f"  Ratio (FCI/MIIC): {t_ratio:.2f}x")
+
+    return {
+        'fci_edges' : fci_struct['edges'], 
+        'fci_total' : total_fci,
+        'fci_num_oriented' : fci_struct['num_oriented'], 
+        'fci_num_totally_oriented' : fci_struct['num_totally_oriented'],
+        'fci_num_circles' : fci_struct['num_circles'],
+        'fci_certainty_score' : fci_struct['certainty_score'],
+        'miic_skeleton' : miic_struct['skeleton'], 
+        'miic_total' : total_miic,
+        'miic_num_edges' : miic_struct['num_edges'], 
+        'miic_num_arcs' : miic_struct['num_arcs'], 
+        'common_edges': common_edges,
+        'jaccard_similarity' : jaccard_similarity,
+        't_ratio' : t_ratio
     }
 
 def labelize_pdag_nodes(pdag, struct, latent_var=None):
@@ -136,84 +169,68 @@ def labelize_pdag_nodes(pdag, struct, latent_var=None):
     elif isinstance(struct, FCI):
         labels = struct.get_variables()
         # print('FCI', labels)
+
     for n in pdag.nodes():
         dot.node(labels[n], label=f"{labels[n]}")
+
     for (i, j) in pdag.edges():
         dot.edge(labels[i], labels[j], dir="none")
     for (i,j) in pdag.arcs():
-        dot.edge(labels[i], labels[j], dir="foward")
+        dot.edge(labels[i], labels[j], dir="forward")
     return dot
 
-def print_comparison_results(comparison, fci_time, miic_time):
-    '''Display comparison between FCI and MIIC.'''
-    print("-" * 60)
-    print("COMPARAISON FCI vs MIIC")
-    print("-" * 60)
-    print(f"Structure:")
-    print(f"  FCI  - Total arêtes squelette: {comparison['fci_edges']}")
-    print(f"       - Orientées: {comparison['fci_oriented']}")
-    print(f"       - Non-orientées: {comparison['fci_unoriented']}")
-    print(f"  MIIC - Total arêtes squelette : {comparison['miic_edges']+comparison['miic_arcs']}")
-    print(f"       - Arcs: {comparison['miic_arcs']}")
-    print(f"\nSimilarité:")
-    print(f"  Arêtes communes: {comparison['common_edges']}")
-    print(f"  Jaccard similarity: {comparison['jaccard_similarity']:.3f}")
-    print(f"\nTemps d'exécution:")
-    print(f"  FCI:  {fci_time:.3f}s")
-    print(f"  MIIC: {miic_time:.3f}s")
-    print(f"  Ratio (FCI/MIIC): {fci_time/miic_time:.2f}x")
 
-if __name__=='__main__':
-    # Création d'un réseau bayésien simple avec une structure connue
-    print("📝 Test 1: Réseau simple (4 variables)")
-    print("-" * 60)
+# if __name__=='__main__':
+#     # Création d'un réseau bayésien simple avec une structure connue
+#     print("📝 Test 1: Réseau simple (4 variables)")
+#     print("-" * 60)
 
-    bn_simple = gum.BayesNet("Simple_Network")
+#     bn_simple = gum.BayesNet("Simple_Network")
 
-    # Ajout des variables
-    a = bn_simple.add(gum.LabelizedVariable('A', 'Variable A', 2))
-    b = bn_simple.add(gum.LabelizedVariable('B', 'Variable B', 2))
-    c = bn_simple.add(gum.LabelizedVariable('C', 'Variable C', 2))
-    d = bn_simple.add(gum.LabelizedVariable('D', 'Variable D', 2))
-    e = bn_simple.add(gum.LabelizedVariable('E', 'Variable E', 2))
+#     # Ajout des variables
+#     a = bn_simple.add(gum.LabelizedVariable('A', 'Variable A', 2))
+#     b = bn_simple.add(gum.LabelizedVariable('B', 'Variable B', 2))
+#     c = bn_simple.add(gum.LabelizedVariable('C', 'Variable C', 2))
+#     d = bn_simple.add(gum.LabelizedVariable('D', 'Variable D', 2))
+#     e = bn_simple.add(gum.LabelizedVariable('E', 'Variable E', 2))
 
 
-    # Ajout des arcs
-    bn_simple.addArc(a, b)
-    bn_simple.addArc(a, d)
-    bn_simple.addArc(b, e)
-    bn_simple.addArc(c, b)
-    bn_simple.addArc(c, e)
-    bn_simple.addArc(d, c)
+#     # Ajout des arcs
+#     bn_simple.addArc(a, b)
+#     bn_simple.addArc(a, d)
+#     bn_simple.addArc(b, e)
+#     bn_simple.addArc(c, b)
+#     bn_simple.addArc(c, e)
+#     bn_simple.addArc(d, c)
 
 
-    # Génération des CPTs aléatoires
-    bn_simple.generateCPTs()
+#     # Génération des CPTs aléatoires
+#     bn_simple.generateCPTs()
 
-    print(f"Réseau créé: {bn_simple.size()} variables, {bn_simple.sizeArcs()} arcs")
+#     print(f"Réseau créé: {bn_simple.size()} variables, {bn_simple.sizeArcs()} arcs")
 
-    df_simple,_ = generate_test_data(bn_simple, n_samples=1000)
+#     df_simple,_ = generate_test_data(bn_simple, n_samples=1000)
 
-    learner_simple = gum.BNLearner(df_simple, bn_simple)
+#     learner_simple = gum.BNLearner(df_simple, bn_simple)
 
-    def run_miic(learner):
-        learner.useMIIC()
-        return learner.learnPDAG()
+#     def run_miic(learner):
+#         learner.useMIIC()
+#         return learner.learnPDAG()
 
-    miic_simple, miic_time_simple = measure_execution_time(run_miic, learner_simple)
-    print(f"MIIC terminé en {miic_time_simple:.3f}s")
+#     miic_simple, miic_time_simple = measure_execution_time(run_miic, learner_simple)
+#     print(f"MIIC terminé en {miic_time_simple:.3f}s")
 
-    # print(labelize_pdag_nodes(miic_simple,bn_simple))
+#     # print(labelize_pdag_nodes(miic_simple,bn_simple))
 
-    labels = get_BNlabel_nodes(bn_simple)
-    print(labels)
-    edges = miic_simple.edges()
-    print(edges)
-    edges = map(lambda edge : labelize_edge(labels, edge), edges)
-    print(list(edges))
+#     labels = get_BNlabel_nodes(bn_simple)
+#     print(labels)
+#     edges = miic_simple.edges()
+#     print(edges)
+#     edges = map(lambda edge : labelize_edge(labels, edge), edges)
+#     print(list(edges))
 
-    # Visualisation du résultat MIIC
-    # print("\nPDAG résultant (MIIC):")
-    # print(miic_simple.toDot())
-    # print(utils.get_variablesBN(bn_simple))
-    # Source(miic_simple.toDot())
+#     # Visualisation du résultat MIIC
+#     # print("\nPDAG résultant (MIIC):")
+#     # print(miic_simple.toDot())
+#     # print(utils.get_variablesBN(bn_simple))
+#     # Source(miic_simple.toDot())
