@@ -34,7 +34,6 @@ Experimental analysis for the empirical studies are implemented in the Python no
 python>=3.10
 pyagrum>=2.3
 numpy>=2.2
-scipy>=1.10
 causallearn>=0.1
 pandas>=0.5
 bnlearn>=0.12
@@ -47,9 +46,9 @@ pgmpy>=0.1
 
 ```bash
 .
-├─ FCI.py           # Main FCI/RFCI algorithm implementation
+├─ FCI.py           # Main FCI algorithm implementation
 ├─ utils.py         # Helper functions for testing and visualization
-├─ test.ipynb       # Additional test cases
 ├─ fci_tests.ipynb  # Experimental analyses
+├─ test.ipynb       # Additional test cases
 ├─ README.md
 ```
