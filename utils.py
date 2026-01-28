@@ -36,7 +36,7 @@ def get_fci_structure(fci):
         - oriented edges (X*->Y)
         - totally oriented edges (X->Y or X<->Y)
         - number of circles tails (Xo-*Y)
-        - certainty score 
+        - uncertainty score 
     '''
 
     edges = set(fci.list_edges())
@@ -63,7 +63,7 @@ def get_fci_structure(fci):
         elif fci.matrix[i,j]=='o' and fci.matrix[j,i]=='o':
             num_circles += 2
         
-    certainty_score = num_circles / (2 * len(edges)) if len(edges) > 0 else 0
+    uncertainty_score = num_circles / (2 * len(edges)) if len(edges) > 0 else 0
 
     labels = fci.get_variables()
     # print('FCI', labels)
@@ -75,7 +75,7 @@ def get_fci_structure(fci):
         'num_oriented' : num_oriented, 
         'num_totally_oriented' : num_totally_oriented,
         'num_circles' : num_circles,
-        'certainty_score' : certainty_score
+        'uncertainty_score' : uncertainty_score
     }
 
 
@@ -125,7 +125,7 @@ def compare_structures(fci, miic, bn, fci_time, miic_time, latent_variable=None,
         print(f"Structure:")
         print(f"  FCI  - Total arêtes du squelette: {total_fci}")
         print(f"       - Orientées: {fci_struct['num_oriented']}")
-        print(f"       - Taux de certitude: {fci_struct['certainty_score']*100:.0f}% ({fci_struct['num_circles']}/{2*total_fci})")
+        print(f"       - Taux d'incertitude: {fci_struct['uncertainty_score']*100:.0f}% ({fci_struct['num_circles']}/{2*total_fci})")
         print(f"  MIIC - Total arêtes du squelette : {total_miic}")
         print(f"       - Arcs: {miic_struct['num_arcs']}")
         print(f"\nSimilarité:")
@@ -142,7 +142,7 @@ def compare_structures(fci, miic, bn, fci_time, miic_time, latent_variable=None,
         'fci_num_oriented' : fci_struct['num_oriented'], 
         'fci_num_totally_oriented' : fci_struct['num_totally_oriented'],
         'fci_num_circles' : fci_struct['num_circles'],
-        'fci_certainty_score' : fci_struct['certainty_score'],
+        'fci_uncertainty_score' : fci_struct['uncertainty_score'],
         'miic_skeleton' : miic_struct['skeleton'], 
         'miic_total' : total_miic,
         'miic_num_edges' : miic_struct['num_edges'], 
