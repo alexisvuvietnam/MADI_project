@@ -48,7 +48,7 @@ pgmpy>=0.1
 .
 ├─ FCI.py           # Main FCI algorithm implementation
 ├─ utils.py         # Helper functions for testing and visualization
-├─ fci_tests.ipynb  # Experimental analyses
+├─ fci_tests.ipynb  # Experimental analysis
 ├─ test.ipynb       # Additional test cases
 ├─ README.md
 ```
